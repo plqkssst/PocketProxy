@@ -1,0 +1,181 @@
+name: Build iOS IPA
+
+# Produces an installable iOS package for the sing-box based client.
+#
+# Two artifacts are uploaded:
+#   PocketProxy-unsigned.ipa    - not signed at all; re-sign with Sideloadly/AltStore
+#                                 (requires a paid Apple Developer account, because the
+#                                 NetworkExtension entitlement is not granted to free IDs)
+#   PocketProxy-trollstore.ipa  - ldid signed with real entitlements; only installable on
+#                                 iOS 14.0 - 17.0 through TrollStore
+#
+# This runs on a macOS runner because Xcode is the only compiler for iOS.
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_package_identifier:
+        description: BASE_PACKAGE_IDENTIFIER (bundle id prefix)
+        required: false
+        default: io.github.plqkssst.pocketproxy
+      runner:
+        description: Runner label
+        required: false
+        default: macos-latest
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+
+concurrency:
+  group: build-ios-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SING_BOX_TAG: v1.14.3
+  RUNESTONE_COMMIT: baeb3cbf8332d26b4f7b4c175a01f288ebbf3e7f
+  BASE_PACKAGE_IDENTIFIER: ${{ github.event.inputs.base_package_identifier || 'io.github.plqkssst.pocketproxy' }}
+  APP_PRODUCT: sing-box
+
+jobs:
+  build-ios:
+    name: Build unsigned IPA
+    runs-on: ${{ github.event.inputs.runner || 'macos-latest' }}
+    timeout-minutes: 150
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Toolchain versions
+        run: |
+          xcodebuild -version
+          sw_vers
+          xcrun --sdk iphoneos --show-sdk-version
+          xcrun --sdk iphoneos --show-sdk-path
+
+      - name: Checkout sing-box core
+        run: |
+          git clone --depth 1 --branch "$SING_BOX_TAG" \
+            https://github.com/SagerNet/sing-box.git "$RUNNER_TEMP/sing-box"
+          git -C "$RUNNER_TEMP/sing-box" log --oneline -1
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: ${{ runner.temp }}/sing-box/go.mod
+          cache-dependency-path: ${{ runner.temp }}/sing-box/go.sum
+
+      - name: Checkout Runestone package
+        run: |
+          git clone https://github.com/nekohasekai/Runestone.git Frameworks/Runestone
+          git -C Frameworks/Runestone checkout "$RUNESTONE_COMMIT"
+          git -C Frameworks/Runestone log --oneline -1
+
+      - name: Build Libbox.xcframework
+        working-directory: ${{ runner.temp }}/sing-box
+        env:
+          GOTOOLCHAIN: local
+        run: |
+          set -euo pipefail
+          make lib_install
+          export PATH="$PATH:$(go env GOPATH)/bin"
+          go run ./cmd/internal/build_libbox -target apple -platform ios
+          test -d Libbox.xcframework
+          rm -rf "$GITHUB_WORKSPACE/Libbox.xcframework"
+          cp -R Libbox.xcframework "$GITHUB_WORKSPACE/"
+          ls -1 "$GITHUB_WORKSPACE/Libbox.xcframework"
+
+      - name: Build SFI
+        run: |
+          set -uo pipefail
+          defaults write com.apple.dt.Xcode IDESkipPackagePluginFingerprintValidatation -bool YES || true
+          defaults write com.apple.dt.Xcode IDESkipMacroFingerprintValidation -bool YES || true
+
+          LOG="$RUNNER_TEMP/xcodebuild.log"
+          xcodebuild build \
+            -project sing-box.xcodeproj \
+            -scheme SFI \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build/dd \
+            -skipPackagePluginValidation \
+            -skipMacroValidation \
+            BASE_PACKAGE_IDENTIFIER="$BASE_PACKAGE_IDENTIFIER" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            ENABLE_BITCODE=NO \
+            >"$LOG" 2>&1
+          STATUS=$?
+
+          echo "::group::xcodebuild tail"
+          tail -n 40 "$LOG"
+          echo "::endgroup::"
+
+          if [ "$STATUS" -ne 0 ]; then
+            echo "::group::xcodebuild errors"
+            grep -nE "error:|error :|BUILD FAILED|The following build commands failed" "$LOG" | head -n 100
+            echo "::endgroup::"
+            exit "$STATUS"
+          fi
+
+      - name: Collect build products
+        run: |
+          set -euo pipefail
+          APP="build/dd/Build/Products/Release-iphoneos/$APP_PRODUCT.app"
+          if [ ! -d "$APP" ]; then
+            echo "expected app at $APP" >&2
+            find build/dd/Build/Products -maxdepth 2 -name '*.app' -o -maxdepth 2 -name '*.appex' | head -n 20 >&2
+            exit 1
+          fi
+          echo "APP_PATH=$APP" >>"$GITHUB_ENV"
+          echo "--- bundle contents ---"
+          ls -1 "$APP"
+          echo "--- embedded extensions ---"
+          find "$APP" -name '*.appex' | sed "s|$APP/||"
+          echo "--- size ---"
+          du -sh "$APP"
+
+      - name: Package unsigned IPA
+        run: |
+          set -euo pipefail
+          rm -rf "$RUNNER_TEMP/Payload"
+          mkdir -p "$RUNNER_TEMP/Payload"
+          cp -R "$APP_PATH" "$RUNNER_TEMP/Payload/"
+          cd "$RUNNER_TEMP"
+          rm -f "$GITHUB_WORKSPACE/PocketProxy-unsigned.ipa"
+          zip -qry "$GITHUB_WORKSPACE/PocketProxy-unsigned.ipa" Payload
+          ls -lh "$GITHUB_WORKSPACE/PocketProxy-unsigned.ipa"
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: PocketProxy-unsigned-ipa
+          path: PocketProxy-unsigned.ipa
+          if-no-files-found: error
+          compression-level: 0
+
+      - name: Install ldid
+        run: brew install ldid
+
+      - name: Package TrollStore IPA
+        run: |
+          set -euo pipefail
+          bash scripts/make-entitlements.sh "$BASE_PACKAGE_IDENTIFIER" "$RUNNER_TEMP/ent"
+          rm -rf "$RUNNER_TEMP/Payload"
+          mkdir -p "$RUNNER_TEMP/Payload"
+          cp -R "$APP_PATH" "$RUNNER_TEMP/Payload/"
+          bash scripts/sign-trollstore.sh "$RUNNER_TEMP/Payload/$APP_PRODUCT.app" "$RUNNER_TEMP/ent"
+          cd "$RUNNER_TEMP"
+          rm -f "$GITHUB_WORKSPACE/PocketProxy-trollstore.ipa"
+          zip -qry "$GITHUB_WORKSPACE/PocketProxy-trollstore.ipa" Payload
+          ls -lh "$GITHUB_WORKSPACE/PocketProxy-trollstore.ipa"
+
+      - name: Upload TrollStore IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: PocketProxy-trollstore-ipa
+          path: PocketProxy-trollstore.ipa
+          if-no-files-found: error
+          compression-level: 0
