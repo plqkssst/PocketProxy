@@ -25,6 +25,8 @@ struct MainView: View {
     @State private var alert: AlertState?
     @State private var showGroups = false
     @State private var showConnections = false
+    @State private var showDiagnostics = false
+    @State private var didAutoPresentDiagnostics = false
     @State private var buttonState = ButtonVisibilityState()
     @State private var initializedTabs: Set<NavigationPage> = []
     @State private var logsAccessoryHeight: CGFloat = 0
@@ -121,6 +123,11 @@ struct MainView: View {
                     ToolbarItem(placement: .topBarLeading) {
                         serviceToolbarItem
                     }
+                    if page == .settings {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            diagnosticsToolbarItem
+                        }
+                    }
                 }
         }
         .environment(\.remoteControlInToolbar, remoteControlInToolbar)
@@ -149,6 +156,15 @@ struct MainView: View {
         } else {
             StartStopButton(showsRuntimeDuration: true)
         }
+    }
+
+    private var diagnosticsToolbarItem: some View {
+        Button {
+            showDiagnostics = true
+        } label: {
+            Image(systemName: "stethoscope")
+        }
+        .accessibilityLabel("Diagnostics")
     }
 
     private func reloadRemoteServers() async {
@@ -189,6 +205,13 @@ struct MainView: View {
             }
         let content = page.contentView
             .navigationTitle(page.title)
+            .toolbar {
+                if page == .settings {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        diagnosticsToolbarItem
+                    }
+                }
+            }
             .onAppear {
                 if !initializedTabs.contains(page) {
                     DispatchQueue.main.async {
@@ -395,6 +418,15 @@ struct MainView: View {
             }
             .sheet(isPresented: $showConnections) {
                 ConnectionsSheetContent()
+            }
+            .sheet(isPresented: $showDiagnostics) {
+                DiagnosticsView()
+            }
+            .onAppear {
+                if FilePath.appGroupUnavailable, !didAutoPresentDiagnostics {
+                    didAutoPresentDiagnostics = true
+                    showDiagnostics = true
+                }
             }
             .onChangeCompat(of: buttonState.showGroupsButton) { newValue in
                 if !newValue {

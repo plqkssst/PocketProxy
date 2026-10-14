@@ -93,7 +93,7 @@ jobs:
           defaults write com.apple.dt.Xcode IDESkipMacroFingerprintValidation -bool YES || true
 
           LOG="$RUNNER_TEMP/xcodebuild.log"
-          xcodebuild build \
+          if xcodebuild build \
             -project sing-box.xcodeproj \
             -scheme SFI \
             -configuration Release \
@@ -107,18 +107,27 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             ENABLE_BITCODE=NO \
             >"$LOG" 2>&1
-          STATUS=$?
-
-          echo "::group::xcodebuild tail"
-          tail -n 40 "$LOG"
-          echo "::endgroup::"
-
-          if [ "$STATUS" -ne 0 ]; then
+          then
+            echo "xcodebuild succeeded"
+          else
+            STATUS=$?
             echo "::group::xcodebuild errors"
-            grep -nE "error:|error :|BUILD FAILED|The following build commands failed" "$LOG" | head -n 100
+            grep -nE "error:|error :|BUILD FAILED|The following build commands failed" "$LOG" | head -n 150 || true
+            echo "::endgroup::"
+            echo "::group::xcodebuild tail"
+            tail -n 60 "$LOG" || true
             echo "::endgroup::"
             exit "$STATUS"
           fi
+
+      - name: Upload xcodebuild log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: ${{ runner.temp }}/xcodebuild.log
+          if-no-files-found: warn
+          compression-level: 9
 
       - name: Collect build products
         run: |

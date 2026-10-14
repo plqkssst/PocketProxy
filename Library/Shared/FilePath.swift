@@ -4,12 +4,27 @@ public enum FilePath {
     public static let packageName = AppConfiguration.packageName
     public static let groupName = AppConfiguration.appGroupID
 
-    private static let defaultSharedDirectory: URL! = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: groupName)
+    private static let defaultSharedDirectory: URL? = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: groupName)
+
+    /// The App Group is the only channel the app and the tunnel extension share profiles
+    /// through, so this being unavailable means the VPN cannot work: the signature is
+    /// missing `com.apple.security.application-groups`.
+    public static let appGroupUnavailable = defaultSharedDirectory == nil
+
+    /// Keeps the app launchable when the container is gone instead of trapping, so the
+    /// diagnostics screen can explain what the signature is missing.
+    private static let fallbackDirectory: URL = {
+        let url = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+            .appendingPathComponent("Documents", isDirectory: true)
+            .appendingPathComponent("NoAppGroup", isDirectory: true)
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }()
 
     #if os(iOS)
-        public static let sharedDirectory = defaultSharedDirectory!
+        public static let sharedDirectory = defaultSharedDirectory ?? fallbackDirectory
     #elseif os(tvOS)
-        public static let sharedDirectory = defaultSharedDirectory
+        public static let sharedDirectory = (defaultSharedDirectory ?? fallbackDirectory)
             .appendingPathComponent("Library", isDirectory: true)
             .appendingPathComponent("Caches", isDirectory: true)
     #elseif os(macOS)
