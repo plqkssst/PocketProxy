@@ -60,6 +60,14 @@ jobs:
             https://github.com/SagerNet/sing-box.git "$RUNNER_TEMP/sing-box"
           git -C "$RUNNER_TEMP/sing-box" log --oneline -1
 
+      - name: Test the share-link parser
+        run: |
+          set -euo pipefail
+          swiftc -o "$RUNNER_TEMP/shadowlink-tests" \
+            Library/ShadowLink/ShadowLink.swift \
+            Tools/ShadowLinkTests/main.swift
+          "$RUNNER_TEMP/shadowlink-tests"
+
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
@@ -102,6 +110,7 @@ jobs:
             -skipPackagePluginValidation \
             -skipMacroValidation \
             BASE_PACKAGE_IDENTIFIER="$BASE_PACKAGE_IDENTIFIER" \
+            IPHONEOS_DEPLOYMENT_TARGET=16.0 \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
