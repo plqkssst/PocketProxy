@@ -12,17 +12,34 @@
 
 ### 为什么免费 Apple ID 不行
 
-本 App 的 VPN 功能依赖三个 entitlements：
+本 App 的 VPN 功能依赖这些 entitlements：
 
 ```
-com.apple.developer.networking.networkextension  = packet-tunnel-provider
+com.apple.developer.networking.networkextension  = packet-tunnel-provider   ← 决定性的
 com.apple.security.application-groups            = group.<你的包名>
 com.apple.developer.team-identifier
 ```
 
-这三个都属于**付费开发者账号专属能力**。免费 Apple ID 生成的 provisioning profile 里没有它们，签名时会被剥离。结果是：App 能装上、能打开，但一按连接就会失败（`NETunnelProviderManager` 报错或直接无反应）。
+Apple 官方文档把"哪些能力免费账号能用"写得很清楚：
+<https://developer.apple.com/help/account/reference/supported-capabilities-ios/>
+（表格列依次为 ADP = 个人付费账号 / ADEP = 企业账号 / Apple Developer = 免费 Apple ID）
 
-这不是能绕过的技术问题，是 Apple 的账号策略。
+| 能力 | 付费账号 | 企业账号 | 免费 Apple ID |
+|---|---|---|---|
+| **Network extensions** | ✅ | ✅ | ❌ |
+| **Personal VPN** | ✅ | ✅ | ❌ |
+| Access WiFi information | ✅ | ✅ | ❌ |
+| App groups | ✅ | ✅ | **✅** |
+
+全部 57 项能力里，免费账号只有 9 项可用。
+
+两点结论：
+
+1. **`Network extensions` 免费账号拿不到 —— 这是决定性的。** 缺了它，`NETunnelProviderManager` 无法建立隧道，VPN 一定起不来。这不是能绕过的技术问题，是 Apple 的账号策略。
+2. **`App groups` 免费账号可以用**，所以缺权限时 App 未必会闪退。但即使 App Group 容器建得起来，隧道扩展仍然起不来 —— 这两件事是独立的。
+
+另外提醒：**别用网上买的"共享企业证书"。** 企业证书（ADEP）确实支持 Network extensions，但那些证书的 App ID 基本不会给你开这个能力，而且随时会被 Apple 吊销 —— 一吊销，所有用它签的 App 立刻无法启动。
+
 
 ---
 
