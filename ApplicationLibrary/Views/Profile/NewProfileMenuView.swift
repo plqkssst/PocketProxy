@@ -183,6 +183,15 @@ public struct NewProfileMenuView: View {
                     }
                 #endif
 
+                #if !os(tvOS)
+                    FormNavigationLink {
+                        ImportShareLinkView()
+                            .environmentObject(environments)
+                    } label: {
+                        Label("Import from Share Link", systemImage: "link")
+                    }
+                #endif
+
                 #if os(macOS)
                     FormButton {
                         showNewProfile = true

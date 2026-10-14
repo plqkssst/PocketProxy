@@ -350,13 +350,80 @@ public enum ShadowLink {
 }
 
 public extension ShadowLinkNode {
-    /// Wraps the node in a complete single-outbound sing-box config, which is what the app
-    /// needs in order to create a usable profile from a share link.
-    func profileConfig(remarks: String? = nil) throws -> String {
+    /// A complete single-node sing-box config.
+    func profileConfig() throws -> String {
+        return try ShadowLink.profileConfig(nodes: [self])
+    }
+}
+
+public extension ShadowLink {
+    /// Builds a full sing-box config. The app hands the profile file straight to the tunnel
+    /// core without injecting anything, so the config has to carry its own tun inbound or the
+    /// tunnel would come up with no routes at all.
+    static func profileConfig(nodes: [ShadowLinkNode]) throws -> String {
+        guard !nodes.isEmpty else {
+            throw ShadowLinkError.malformedLink("no nodes to build a config from")
+        }
+
+        var usedTags: Set<String> = []
+        var outbounds: [[String: Any]] = []
+        for node in nodes {
+            var outbound = node.outbound()
+            var tag = node.tag
+            var suffix = 2
+            while usedTags.contains(tag) {
+                tag = "\(node.tag) \(suffix)"
+                suffix += 1
+            }
+            usedTags.insert(tag)
+            outbound["tag"] = tag
+            outbounds.append(outbound)
+        }
+        outbounds.append(["type": "direct", "tag": "direct"])
+
+        let finalTag: String
+        if outbounds.count > 2 {
+            let tags = outbounds.dropLast().compactMap { $0["tag"] as? String }
+            outbounds.insert(
+                [
+                    "type": "selector",
+                    "tag": "proxy",
+                    "outbounds": tags,
+                    "default": tags[0],
+                ],
+                at: 0
+            )
+            finalTag = "proxy"
+        } else {
+            finalTag = (outbounds[0]["tag"] as? String) ?? "proxy"
+        }
+
         let config: [String: Any] = [
-            "log": ["level": "info"],
-            "outbounds": [outbound()],
+            "log": [
+                "level": "info",
+                "timestamp": true,
+            ],
+            "inbounds": [
+                [
+                    "type": "tun",
+                    "tag": "tun-in",
+                    "address": ["172.19.0.1/30", "fdfe:dcba:9876::1/126"],
+                    "mtu": 9000,
+                    "auto_route": true,
+                    "strict_route": false,
+                    "stack": "gvisor",
+                ],
+            ],
+            "outbounds": outbounds,
+            "route": [
+                "rules": [
+                    ["ip_is_private": true, "outbound": "direct"],
+                ],
+                "final": finalTag,
+                "auto_detect_interface": true,
+            ],
         ]
+
         let data = try JSONSerialization.data(
             withJSONObject: config,
             options: [.prettyPrinted, .sortedKeys]

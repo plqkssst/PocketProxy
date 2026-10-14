@@ -150,11 +150,66 @@ do {
     let object = try JSONSerialization.jsonObject(with: Data(json.utf8)) as? [String: Any]
     checkEqual(object?["type"] as? String, "shadowsocks", "type")
     checkEqual(object?["server_port"] as? Int, 8388, "server_port")
-    let config = try node.profileConfig()
-    let configObject = try JSONSerialization.jsonObject(with: Data(config.utf8)) as? [String: Any]
-    checkEqual((configObject?["outbounds"] as? [[String: Any]])?.count, 1, "one outbound")
 } catch {
     check(false, "outbound JSON", "\(error)")
+}
+
+print("generated profile is a complete sing-box config")
+do {
+    let node = try ShadowLink.parse("ss://YWVzLTI1Ni1nY206c2VjcmV0@1.2.3.4:8388#Tokyo")
+    let config = try JSONSerialization.jsonObject(with: Data(node.profileConfig().utf8)) as? [String: Any]
+
+    let inbounds = config?["inbounds"] as? [[String: Any]]
+    checkEqual(inbounds?.count, 1, "one inbound")
+    let tun = inbounds?.first
+    checkEqual(tun?["type"] as? String, "tun", "inbound is tun")
+    checkEqual(tun?["auto_route"] as? Bool, true, "auto_route is on")
+    checkEqual(tun?["stack"] as? String, "gvisor", "stack")
+    checkEqual(tun?["mtu"] as? Int, 9000, "mtu")
+    checkEqual((tun?["address"] as? [String])?.first, "172.19.0.1/30", "tun address")
+
+    let outbounds = config?["outbounds"] as? [[String: Any]]
+    checkEqual(outbounds?.count, 2, "node plus direct")
+    checkEqual(outbounds?.last?["type"] as? String, "direct", "direct outbound present")
+
+    let route = config?["route"] as? [String: Any]
+    checkEqual(route?["final"] as? String, "Tokyo", "route final is the node")
+    checkEqual(route?["auto_detect_interface"] as? Bool, true, "auto_detect_interface")
+    checkEqual((route?["rules"] as? [[String: Any]])?.count, 1, "one route rule")
+} catch {
+    check(false, "single-node config", "\(error)")
+}
+
+print("multiple nodes become a selector")
+do {
+    let first = try ShadowLink.parse("ss://YWVzLTI1Ni1nY206c2VjcmV0@1.2.3.4:8388#Tokyo")
+    let second = try ShadowLink.parse("ss://YWVzLTI1Ni1nY206c2VjcmV0@5.6.7.8:8388#Osaka")
+    let config = try JSONSerialization.jsonObject(
+        with: Data(ShadowLink.profileConfig(nodes: [first, second]).utf8)
+    ) as? [String: Any]
+
+    let outbounds = config?["outbounds"] as? [[String: Any]]
+    checkEqual(outbounds?.count, 4, "selector, two nodes, direct")
+    let selector = outbounds?.first
+    checkEqual(selector?["type"] as? String, "selector", "first outbound is a selector")
+    checkEqual(selector?["outbounds"] as? [String], ["Tokyo", "Osaka"], "selector members")
+    checkEqual(selector?["default"] as? String, "Tokyo", "selector default")
+    checkEqual((config?["route"] as? [String: Any])?["final"] as? String, "proxy", "route final is the selector")
+} catch {
+    check(false, "multi-node config", "\(error)")
+}
+
+print("duplicate tags are disambiguated")
+do {
+    let a = try ShadowLink.parse("ss://YWVzLTI1Ni1nY206c2VjcmV0@1.2.3.4:8388#Same")
+    let b = try ShadowLink.parse("ss://YWVzLTI1Ni1nY206c2VjcmV0@5.6.7.8:8388#Same")
+    let config = try JSONSerialization.jsonObject(
+        with: Data(ShadowLink.profileConfig(nodes: [a, b]).utf8)
+    ) as? [String: Any]
+    let selector = (config?["outbounds"] as? [[String: Any]])?.first
+    checkEqual(selector?["outbounds"] as? [String], ["Same", "Same 2"], "second tag got a suffix")
+} catch {
+    check(false, "duplicate tags", "\(error)")
 }
 
 print("rejections")
