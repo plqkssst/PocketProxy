@@ -89,7 +89,7 @@ public struct ImportShareLinkView: View {
                     title: String(localized: "Import Profile"),
                     message: "Imported \(nodes.count) node(s), skipped \(failures.count):\n"
                         + failures.prefix(3).joined(separator: "\n"),
-                    primaryButton: .default("OK") {
+                    dismissButton: .default("OK") {
                         dismiss()
                     }
                 )
