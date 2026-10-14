@@ -112,6 +112,14 @@ jobs:
           cp -R Libbox.xcframework "$GITHUB_WORKSPACE/"
           ls -1 "$GITHUB_WORKSPACE/Libbox.xcframework"
 
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: build/dd/SourcePackages
+          key: spm-${{ runner.os }}-${{ hashFiles('sing-box.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
+          restore-keys: |
+            spm-${{ runner.os }}-
+
       - name: Build SFI
         run: |
           set -uo pipefail
