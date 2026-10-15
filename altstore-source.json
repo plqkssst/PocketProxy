@@ -1,0 +1,54 @@
+{
+  "name": "PocketProxy",
+  "subtitle": "基于 sing-box 的 iOS 代理客户端",
+  "description": "在 SideStore / AltStore 中添加此源即可一键安装 PocketProxy。\n\n支持 ss / vmess / vless / trojan / hysteria2 / tuic / socks / http 分享链接导入，以及订阅包与订阅 URL。\n\n注意：VPN 功能依赖 Network Extension 权限，免费 Apple ID 无法获取，因此免费账号安装后界面可用但无法建立 VPN 连接。",
+  "iconURL": "https://raw.githubusercontent.com/plqkssst/PocketProxy/main/SFI/Assets.xcassets/AppIcon.appiconset/1024.png",
+  "headerURL": "https://raw.githubusercontent.com/plqkssst/PocketProxy/main/SFI/Assets.xcassets/AppIcon.appiconset/1024-dark.png",
+  "website": "https://github.com/plqkssst/PocketProxy",
+  "tintColor": "#1B5CE6",
+  "featuredApps": [
+    "io.github.plqkssst.pocketproxy"
+  ],
+  "apps": [
+    {
+      "name": "PocketProxy",
+      "bundleIdentifier": "io.github.plqkssst.pocketproxy",
+      "developerName": "plqkssst",
+      "subtitle": "sing-box 代理客户端",
+      "localizedDescription": "基于 sing-box 内核的 iPhone 代理客户端。\n\n功能：\n• 8 种协议分享链接导入（ss / vmess / vless / trojan / hysteria2 / tuic / socks / http）\n• 订阅包粘贴（含 base64 整包）与订阅 URL 拉取\n• 运行诊断页：显示签名实际带了哪些 entitlements\n• 多节点自动生成 selector\n\n已知限制：\n• VPN 需要 Network Extension 权限，免费 Apple ID 拿不到，因此免费账号下点连接会失败（诊断页会说明原因）\n• 不支持 ShadowsocksR、Hysteria v1、mKCP —— sing-box 内核没有这些实现",
+      "iconURL": "https://raw.githubusercontent.com/plqkssst/PocketProxy/main/SFI/Assets.xcassets/AppIcon.appiconset/1024.png",
+      "tintColor": "#1B5CE6",
+      "category": "utilities",
+      "screenshots": [],
+      "versions": [
+        {
+          "version": "1.14.7",
+          "buildVersion": "1",
+          "date": "2026-10-15T13:24:00Z",
+          "localizedDescription": "首次构建。\n\n• 8 种协议分享链接导入\n• 订阅包与订阅 URL 导入\n• 运行诊断页\n• 自定义包名、图标、显示名\n• tun 配置修正：移除已废弃的 stack，MTU 交回平台默认值",
+          "downloadURL": "https://github.com/plqkssst/PocketProxy/releases/latest/download/PocketProxy-unsigned.ipa",
+          "size": 39449116,
+          "minOSVersion": "16.0"
+        }
+      ],
+      "appPermissions": {
+        "entitlements": [
+          {
+            "name": "com.apple.developer.networking.networkextension",
+            "value": [
+              "packet-tunnel-provider"
+            ]
+          },
+          {
+            "name": "com.apple.security.application-groups",
+            "value": [
+              "group.io.github.plqkssst.pocketproxy"
+            ]
+          }
+        ],
+        "privacy": {}
+      }
+    }
+  ],
+  "news": []
+}
