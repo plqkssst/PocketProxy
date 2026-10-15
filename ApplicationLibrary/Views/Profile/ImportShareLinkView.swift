@@ -8,6 +8,7 @@ public struct ImportShareLinkView: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var input = ""
+    @State private var subscriptionURL = ""
     @State private var alert: AlertState?
     @State private var isSaving = false
 
@@ -17,56 +18,87 @@ public struct ImportShareLinkView: View {
         FormView {
             Section {
                 TextEditor(text: $input)
-                    .frame(minHeight: 160)
+                    .frame(minHeight: 150)
                     .font(.system(.footnote, design: .monospaced))
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
+                FormButton("Import") {
+                    Task {
+                        await importPastedText()
+                    }
+                }
+                .disabled(isSaving || input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             } header: {
                 Text("Share Links")
             } footer: {
-                Text("Paste one ss:// or trojan:// link per line. Multiple links become a single profile with a selector.")
+                Text("One ss://, vmess://, vless://, trojan://, hysteria2://, tuic://, socks:// or http:// link per line. A whole subscription body works too, including the base64 form most providers return. Several links become one profile with a selector.")
             }
 
             Section {
-                FormButton("Import") {
+                TextField("https://example.com/sub?token=...", text: $subscriptionURL)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                    .keyboardType(.URL)
+                FormButton("Fetch and Import") {
                     Task {
-                        await performImport()
+                        await importFromSubscription()
                     }
                 }
-                .disabled(isSaving || trimmedLines.isEmpty)
+                .disabled(isSaving || subscriptionURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            } header: {
+                Text("Subscription")
+            } footer: {
+                Text("Downloads the URL and imports every link it contains.")
             }
         }
         .navigationTitle("Import from Share Link")
+        .overlay {
+            if isSaving {
+                ProgressView()
+            }
+        }
         .alert($alert)
     }
 
-    private var trimmedLines: [String] {
-        input
-            .split(whereSeparator: \.isNewline)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
-            .filter { !$0.isEmpty }
+    private func importPastedText() async {
+        let (nodes, failures) = ShadowLink.parseAll(input)
+        await finish(nodes: nodes, failures: failures, fallbackName: "Imported nodes")
     }
 
-    private func performImport() async {
-        let lines = trimmedLines
-        guard !lines.isEmpty else { return }
+    private func importFromSubscription() async {
+        let rawURL = subscriptionURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !rawURL.isEmpty else { return }
 
-        var nodes: [ShadowLinkNode] = []
-        var failures: [String] = []
-        for line in lines {
-            do {
-                nodes.append(try ShadowLink.parse(line))
-            } catch {
-                failures.append("\(line.prefix(48)): \(error.localizedDescription)")
-            }
+        isSaving = true
+        defer { isSaving = false }
+
+        let body: String
+        do {
+            body = try await HTTPClient.getStringAsync(rawURL)
+        } catch {
+            alert = AlertState(action: "fetch subscription", error: error)
+            return
         }
 
+        let (nodes, failures) = ShadowLink.parseAll(body)
+        let fallbackName = URL(string: rawURL)?.host ?? "Subscription"
+        await finish(nodes: nodes, failures: failures, fallbackName: fallbackName, alreadySaving: true)
+    }
+
+    private func finish(
+        nodes: [ShadowLinkNode],
+        failures: [String],
+        fallbackName: String,
+        alreadySaving: Bool = false
+    ) async {
         guard !nodes.isEmpty else {
             alert = AlertState(errorMessage: failures.prefix(3).joined(separator: "\n"))
             return
         }
 
-        isSaving = true
+        if !alreadySaving {
+            isSaving = true
+        }
         defer { isSaving = false }
 
         do {
@@ -77,7 +109,7 @@ public struct ImportShareLinkView: View {
                 throw error
             }
 
-            let name = nodes.count == 1 ? nodes[0].tag : "\(nodes.count) nodes"
+            let name = nodes.count == 1 ? nodes[0].tag : fallbackName
             let profile = try await createProfile(name: name, config: config)
             await SharedPreferences.selectedProfileID.set(profile.mustID)
             environments.profileUpdate.send()
