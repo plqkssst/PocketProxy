@@ -140,7 +140,7 @@ if let node = parseOk("trojan://p%40ss@example.com:443?sni=example.com&allowInse
 
 print("trojan with security=none")
 if let node = parseOk("trojan://pw@example.com:443?security=none", "trojan plaintext") {
-    checkEqual(node.tls?.enabled, false, "tls disabled")
+    check(node.tls == nil, "no tls object when security=none")
 }
 
 print("outbound JSON round-trips")
@@ -212,13 +212,148 @@ do {
     check(false, "duplicate tags", "\(error)")
 }
 
+print("vmess base64 JSON")
+if let node = parseOk(
+    "vmess://eyJ2IjoiMiIsInBzIjoiVG9reW8gVk1lc3MiLCJhZGQiOiJ2bWVzcy5leGFtcGxlLmNvbSIsInBvcnQiOiI0NDMiLCJpZCI6ImI4MzEzODFkLTYzMjQtNGQ1My1hZDRmLThjZGE0OGIzMDgxMSIsImFpZCI6IjAiLCJzY3kiOiJhdXRvIiwibmV0Ijoid3MiLCJ0eXBlIjoibm9uZSIsImhvc3QiOiJjZG4uZXhhbXBsZS5jb20iLCJwYXRoIjoiL3dzIiwidGxzIjoidGxzIiwic25pIjoiY2RuLmV4YW1wbGUuY29tIiwiYWxwbiI6ImgyLGh0dHAvMS4xIiwiZnAiOiJjaHJvbWUifQ==",
+    "vmess"
+) {
+    checkEqual(node.kind, .vmess, "kind")
+    checkEqual(node.tag, "Tokyo VMess", "tag from ps")
+    checkEqual(node.server, "vmess.example.com", "server")
+    checkEqual(node.port, 443, "port")
+    checkEqual(node.uuid, "b831381d-6324-4d53-ad4f-8cda48b30811", "uuid")
+    checkEqual(node.security, "auto", "security")
+    checkEqual(node.alterId, 0, "alter id")
+    check(node.tls?.enabled == true, "tls enabled")
+    checkEqual(node.tls?.serverName, "cdn.example.com", "server name")
+    checkEqual(node.tls?.alpn, ["h2", "http/1.1"], "alpn")
+    checkEqual(node.tls?.fingerprint, "chrome", "utls fingerprint")
+    check(node.transport?.kind == .webSocket, "websocket transport")
+    checkEqual(node.transport?.path, "/ws", "ws path")
+    checkEqual(node.transport?.host, "cdn.example.com", "ws host")
+
+    let outbound = node.outbound()
+    checkEqual(outbound["type"] as? String, "vmess", "outbound type")
+    check(outbound["alter_id"] == nil, "alter_id omitted when zero")
+    let tls = outbound["tls"] as? [String: Any]
+    checkEqual((tls?["utls"] as? [String: Any])?["fingerprint"] as? String, "chrome", "outbound utls")
+    let transport = outbound["transport"] as? [String: Any]
+    checkEqual(transport?["type"] as? String, "ws", "outbound transport type")
+    let headers = transport?["headers"] as? [String: Any]
+    checkEqual(headers?["Host"] as? [String], ["cdn.example.com"], "outbound ws Host header")
+}
+
+print("vless with reality and grpc")
+if let node = parseOk(
+    "vless://b831381d-6324-4d53-ad4f-8cda48b30811@vless.example.com:443?encryption=none&security=reality&sni=www.example.com&fp=chrome&pbk=PUBKEY123&sid=ab12&type=grpc&serviceName=grpcsvc&flow=xtls-rprx-vision#VLESS",
+    "vless"
+) {
+    checkEqual(node.kind, .vless, "kind")
+    checkEqual(node.tag, "VLESS", "tag")
+    checkEqual(node.uuid, "b831381d-6324-4d53-ad4f-8cda48b30811", "uuid")
+    checkEqual(node.flow, "xtls-rprx-vision", "flow")
+    check(node.tls?.enabled == true, "tls enabled")
+    checkEqual(node.tls?.serverName, "www.example.com", "sni")
+    checkEqual(node.tls?.realityPublicKey, "PUBKEY123", "reality public key")
+    checkEqual(node.tls?.realityShortID, "ab12", "reality short id")
+    check(node.transport?.kind == .grpc, "grpc transport")
+    checkEqual(node.transport?.serviceName, "grpcsvc", "grpc service name")
+
+    let tls = node.outbound()["tls"] as? [String: Any]
+    let reality = tls?["reality"] as? [String: Any]
+    checkEqual(reality?["public_key"] as? String, "PUBKEY123", "outbound reality")
+    let transport = node.outbound()["transport"] as? [String: Any]
+    checkEqual(transport?["service_name"] as? String, "grpcsvc", "outbound service_name")
+}
+
+print("hysteria2 with salamander obfs")
+if let node = parseOk(
+    "hysteria2://letmein@hy2.example.com:8443?sni=hy2.example.com&insecure=1&obfs=salamander&obfs-password=obfspw&up=100&down=500#HY2",
+    "hysteria2"
+) {
+    checkEqual(node.kind, .hysteria2, "kind")
+    checkEqual(node.password, "letmein", "password")
+    checkEqual(node.tls?.serverName, "hy2.example.com", "sni")
+    check(node.tls?.insecure == true, "insecure")
+    checkEqual(node.obfs, "salamander", "obfs")
+    checkEqual(node.obfsPassword, "obfspw", "obfs password")
+    checkEqual(node.upMbps, 100, "up")
+    checkEqual(node.downMbps, 500, "down")
+
+    let obfs = node.outbound()["obfs"] as? [String: Any]
+    checkEqual(obfs?["type"] as? String, "salamander", "outbound obfs type")
+    checkEqual(obfs?["password"] as? String, "obfspw", "outbound obfs password")
+}
+
+print("tuic")
+if let node = parseOk(
+    "tuic://b831381d-6324-4d53-ad4f-8cda48b30811:tuicpass@tuic.example.com:443?congestion_control=bbr&udp_relay_mode=native&alpn=h3&sni=tuic.example.com#TUIC",
+    "tuic"
+) {
+    checkEqual(node.kind, .tuic, "kind")
+    checkEqual(node.uuid, "b831381d-6324-4d53-ad4f-8cda48b30811", "uuid")
+    checkEqual(node.password, "tuicpass", "password")
+    checkEqual(node.congestionControl, "bbr", "congestion control")
+    checkEqual(node.udpRelayMode, "native", "udp relay mode")
+    checkEqual(node.tls?.alpn, ["h3"], "alpn")
+    let outbound = node.outbound()
+    checkEqual(outbound["congestion_control"] as? String, "bbr", "outbound congestion_control")
+    checkEqual(outbound["udp_relay_mode"] as? String, "native", "outbound udp_relay_mode")
+}
+
+print("socks and http")
+if let node = parseOk("socks5://suser:spass@socks.example.com:1080#SOCKS", "socks5") {
+    checkEqual(node.kind, .socks, "kind")
+    checkEqual(node.username, "suser", "username")
+    checkEqual(node.password, "spass", "password")
+    checkEqual(node.socksVersion, "5", "version")
+    let outbound = node.outbound()
+    checkEqual(outbound["version"] as? String, "5", "outbound version")
+    checkEqual(outbound["username"] as? String, "suser", "outbound username")
+    check(outbound["tls"] == nil, "socks carries no tls")
+}
+if let node = parseOk("http://huser:hpass@proxy.example.com:8080#HTTP", "http") {
+    checkEqual(node.kind, .http, "kind")
+    checkEqual(node.username, "huser", "username")
+    checkEqual(node.port, 8080, "port")
+    check(node.tls == nil, "plain http has no tls")
+}
+if let node = parseOk("https://proxy.example.com:8443#HTTPS", "https") {
+    check(node.tls?.enabled == true, "https enables tls")
+    checkEqual(node.tls?.serverName, "proxy.example.com", "sni defaults to the host")
+}
+
+print("subscription bodies")
+let subscriptionLinks = [
+    "ss://YWVzLTI1Ni1nY206c2VjcmV0@1.2.3.4:8388#Node-A",
+    "trojan://tpass@trojan.example.com:443?sni=trojan.example.com#Node-B",
+]
+let plainBody = subscriptionLinks.joined(separator: "\n")
+let base64Body = "c3M6Ly9ZV1Z6TFRJMU5pMW5ZMjA2YzJWamNtVjBAMS4yLjMuNDo4Mzg4I05vZGUtQQp0cm9qYW46Ly90cGFzc0B0cm9qYW4uZXhhbXBsZS5jb206NDQzP3NuaT10cm9qYW4uZXhhbXBsZS5jb20jTm9kZS1C"
+
+for (label, body) in [("plain text body", plainBody), ("base64 body", base64Body)] {
+    let result = ShadowLink.parseAll(body)
+    checkEqual(result.nodes.count, 2, "\(label): node count")
+    checkEqual(result.failures.count, 0, "\(label): no failures")
+    checkEqual(result.nodes.first?.tag, "Node-A", "\(label): first tag")
+    checkEqual(result.nodes.last?.tag, "Node-B", "\(label): second tag")
+}
+
+let mixed = ShadowLink.parseAll("ss://YWVzLTI1Ni1nY206c2VjcmV0@1.2.3.4:8388#Good\nnot-a-link\nssr://c29tZXRoaW5n")
+checkEqual(mixed.nodes.count, 1, "mixed body keeps only the usable link")
+checkEqual(mixed.failures.count, 2, "mixed body reports the other two")
+
 print("rejections")
 expectError("aes-256-gcm:secret@1.2.3.4:8388", .missingScheme, "no scheme")
-expectError("vmess://c29tZXRoaW5n", .unsupportedScheme("vmess"), "unsupported scheme")
+expectError("wireguard://c29tZXRoaW5n", .unsupportedScheme("wireguard"), "unsupported scheme")
+expectError("ssr://c29tZXRoaW5n", .protocolNotSupported("ShadowsocksR (ssr://)"), "ssr is not implemented by sing-box")
+expectError("hysteria://pw@example.com:443", .protocolNotSupported("Hysteria v1 (use hysteria2:// instead)"), "hysteria v1")
+expectError("vless://uuid@example.com:443?type=kcp", .protocolNotSupported("mKCP transport"), "mkcp transport")
 expectError("ss://YWVzLTI1Ni1jZmI6c2VjcmV0@1.2.3.4:8388", .unsupportedMethod("aes-256-cfb"), "legacy cipher")
 expectError("ss://YWVzLTI1Ni1nY206c2VjcmV0@1.2.3.4:notaport", .invalidPort("notaport"), "bad port")
 expectError("ss://!!!not-base64!!!", .malformedLink("cannot recover credentials from the legacy form"), "garbage")
 expectError("ss://YWVzLTI1Ni1nY206c2VjcmV0", .malformedLink("cannot recover credentials from the legacy form"), "no host at all")
+expectError("vmess://bm90LWpzb24=", .malformedLink("vmess payload is not base64 encoded JSON"), "vmess without JSON")
 
 print("")
 print("\(checks - failures)/\(checks) checks passed")
