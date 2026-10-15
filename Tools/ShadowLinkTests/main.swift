@@ -164,8 +164,8 @@ do {
     let tun = inbounds?.first
     checkEqual(tun?["type"] as? String, "tun", "inbound is tun")
     checkEqual(tun?["auto_route"] as? Bool, true, "auto_route is on")
-    checkEqual(tun?["stack"] as? String, "gvisor", "stack")
-    checkEqual(tun?["mtu"] as? Int, 9000, "mtu")
+    check(tun?["stack"] == nil, "stack is left to the platform default (sing-box marks it deprecated)")
+    check(tun?["mtu"] == nil, "mtu is left to the platform default (4064 inside a Network Extension)")
     checkEqual((tun?["address"] as? [String])?.first, "172.19.0.1/30", "tun address")
 
     let outbounds = config?["outbounds"] as? [[String: Any]]
